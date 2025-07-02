@@ -3,6 +3,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.routers import users, auth, profiles, interviews
 from app.database import engine, Base
 from app.models import User, Profile, Interview, InterviewQuestion
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from fastapi import Request, HTTPException
+from starlette.status import HTTP_401_UNAUTHORIZED, HTTP_403_FORBIDDEN
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -41,4 +45,17 @@ def read_root():
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy", "message": "CareerBuildAI API is running"} 
+    return {"status": "healthy", "message": "CareerBuildAI API is running"}
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # Ensure CORS headers are present in error responses
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={
+            "Access-Control-Allow-Origin": request.headers.get("origin", "*"),
+            "Access-Control-Allow-Credentials": "true",
+        },
+    )
+    return response 
