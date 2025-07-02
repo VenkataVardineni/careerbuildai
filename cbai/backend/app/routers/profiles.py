@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
 from sqlalchemy.orm import Session
 from typing import List
 import json
@@ -19,12 +19,18 @@ os.makedirs(UPLOAD_DIR, exist_ok=True)
 @router.post("/", response_model=ProfileResponse)
 async def create_profile(
     profile: ProfileCreate,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Create a new profile for the current user"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     db_profile = Profile(
-        user_id=current_user.id,
+        user_id=user.id,
         full_name=profile.full_name,
         career_role=profile.career_role,
         skills=profile.skills,
@@ -40,15 +46,21 @@ async def create_profile(
 @router.post("/guest", response_model=ProfileResponse)
 async def create_guest_profile(
     profile: GuestProfileCreate,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Create a profile for guest users"""
-    if current_user.is_guest != True:
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.is_guest != True:
         raise HTTPException(status_code=400, detail="This endpoint is for guest users only")
     
     db_profile = Profile(
-        user_id=current_user.id,
+        user_id=user.id,
         full_name=profile.full_name,
         career_role=profile.career_role,
         skills=profile.skills,
@@ -98,23 +110,35 @@ async def upload_resume(
 
 @router.get("/", response_model=List[ProfileResponse])
 async def get_user_profiles(
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Get all profiles for the current user"""
-    profiles = db.query(Profile).filter(Profile.user_id == current_user.id).all()
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    profiles = db.query(Profile).filter(Profile.user_id == user.id).all()
     return profiles
 
 @router.get("/{profile_id}", response_model=ProfileResponse)
 async def get_profile(
     profile_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Get a specific profile"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     profile = db.query(Profile).filter(
         Profile.id == profile_id,
-        Profile.user_id == current_user.id
+        Profile.user_id == user.id
     ).first()
     
     if not profile:
@@ -126,13 +150,19 @@ async def get_profile(
 async def update_profile(
     profile_id: int,
     profile_update: ProfileUpdate,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Update a profile"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     db_profile = db.query(Profile).filter(
         Profile.id == profile_id,
-        Profile.user_id == current_user.id
+        Profile.user_id == user.id
     ).first()
     
     if not db_profile:
@@ -150,13 +180,19 @@ async def update_profile(
 @router.delete("/{profile_id}")
 async def delete_profile(
     profile_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Delete a profile"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     db_profile = db.query(Profile).filter(
         Profile.id == profile_id,
-        Profile.user_id == current_user.id
+        Profile.user_id == user.id
     ).first()
     
     if not db_profile:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Body
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, Body, Request
 from sqlalchemy.orm import Session
 from typing import List
 from datetime import datetime
@@ -19,14 +19,20 @@ router = APIRouter(prefix="/api/v1/interviews", tags=["interviews"])
 @router.post("/", response_model=InterviewResponse)
 async def create_interview(
     interview: InterviewCreate,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Create a new interview session"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     # Verify profile exists and belongs to user
     profile = db.query(Profile).filter(
         Profile.id == interview.profile_id,
-        Profile.user_id == current_user.id
+        Profile.user_id == user.id
     ).first()
     
     if not profile:
@@ -34,7 +40,7 @@ async def create_interview(
     
     # Create interview
     db_interview = Interview(
-        user_id=current_user.id,
+        user_id=user.id,
         profile_id=interview.profile_id,
         job_role=interview.job_role,
         job_description=interview.job_description,
@@ -49,23 +55,35 @@ async def create_interview(
 
 @router.get("/", response_model=List[InterviewResponse])
 async def get_user_interviews(
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Get all interviews for the current user"""
-    interviews = db.query(Interview).filter(Interview.user_id == current_user.id).all()
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    interviews = db.query(Interview).filter(Interview.user_id == user.id).all()
     return interviews
 
 @router.get("/{interview_id}", response_model=InterviewWithQuestions)
 async def get_interview(
     interview_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Get a specific interview with all questions"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     
     if not interview:
@@ -76,15 +94,20 @@ async def get_interview(
 @router.post("/{interview_id}/generate-question", response_model=QuestionGenerationResponse)
 async def generate_question(
     interview_id: int,
-    request: QuestionGenerationRequest,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
+    body: QuestionGenerationRequest,
     db: Session = Depends(get_db)
 ):
     """Generate a new question for the interview"""
-    # Verify interview exists and belongs to user
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     
     if not interview:
@@ -99,12 +122,12 @@ async def generate_question(
         # Generate question using Groq API
         groq_service = GroqService()
         
-        if not request.conversation_history:
+        if not body.conversation_history:
             # First question
             question_text = await groq_service.generate_question(
-                resume_content=request.resume_content,
-                job_role=request.job_role,
-                job_description=request.job_description
+                resume_content=body.resume_content,
+                job_role=body.job_role,
+                job_description=body.job_description
             )
             question_type = "initial"
             # Build the same prompt as in GroqService for frontend logging
@@ -112,13 +135,13 @@ async def generate_question(
             You are a world-class interviewer conducting a technical and behavioral interview.
 
             CANDIDATE BACKGROUND:
-            - Resume Content: {request.resume_content}
-            - Target Job Role: {request.job_role}
-            {f'- Job Description: {request.job_description}' if request.job_description else ''}
+            - Resume Content: {body.resume_content}
+            - Target Job Role: {body.job_role}
+            {f'- Job Description: {body.job_description}' if body.job_description else ''}
 
             INTERVIEW CONTEXT:
             - Here is the full conversation history so far (questions and answers):
-            {json.dumps(request.conversation_history, indent=1) if request.conversation_history else '[]'}
+            {json.dumps(body.conversation_history, indent=1) if body.conversation_history else '[]'}
             - For every question, you must generate a follow-up that references specific details from the candidate's resume and/or their previous answers.
             - Do not ask generic questions. Every question should be tailored to the candidate's unique background and the flow of the interview so far.
             - If clarification is needed, ask for it in a way that builds on what the candidate has already said.
@@ -127,10 +150,10 @@ async def generate_question(
         else:
             # Follow-up question
             question_text = await groq_service.generate_follow_up_question(
-                resume_content=request.resume_content,
-                job_role=request.job_role,
-                conversation_history=request.conversation_history,
-                job_description=request.job_description
+                resume_content=body.resume_content,
+                job_role=body.job_role,
+                conversation_history=body.conversation_history,
+                job_description=body.job_description
             )
             question_type = "follow_up"
             # Build the same prompt as in GroqService for frontend logging
@@ -138,13 +161,13 @@ async def generate_question(
             You are a world-class interviewer conducting a technical and behavioral interview.
 
             CANDIDATE BACKGROUND:
-            - Resume Content: {request.resume_content}
-            - Target Job Role: {request.job_role}
-            {f'- Job Description: {request.job_description}' if request.job_description else ''}
+            - Resume Content: {body.resume_content}
+            - Target Job Role: {body.job_role}
+            {f'- Job Description: {body.job_description}' if body.job_description else ''}
 
             INTERVIEW CONTEXT:
             - Here is the full conversation history so far (questions and answers):
-            {json.dumps(request.conversation_history, indent=1) if request.conversation_history else '[]'}
+            {json.dumps(body.conversation_history, indent=1) if body.conversation_history else '[]'}
             - For every question, you must generate a follow-up that references specific details from the candidate's resume and/or their previous answers.
             - Do not ask generic questions. Every question should be tailored to the candidate's unique background and the flow of the interview so far.
             - If clarification is needed, ask for it in a way that builds on what the candidate has already said.
@@ -175,15 +198,20 @@ async def generate_question(
 async def respond_to_question(
     interview_id: int,
     question_id: int,
+    request: Request,
     response: str = Body(...),
-    current_user: User = Depends(get_current_active_user),
     db: Session = Depends(get_db)
 ):
     """Record user response to a question"""
-    # Verify interview and question exist
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     
     if not interview:
@@ -207,13 +235,19 @@ async def respond_to_question(
 @router.post("/{interview_id}/complete")
 async def complete_interview(
     interview_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Mark interview as completed"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     
     if not interview:
@@ -228,13 +262,19 @@ async def complete_interview(
 @router.delete("/{interview_id}")
 async def delete_interview(
     interview_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Delete an interview"""
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     
     if not interview:
@@ -248,14 +288,19 @@ async def delete_interview(
 @router.post("/{interview_id}/feedback")
 async def generate_feedback(
     interview_id: int,
-    current_user: User = Depends(get_current_active_user),
+    request: Request,
     db: Session = Depends(get_db)
 ):
     """Generate feedback for each answer in the interview."""
-    # Verify interview exists and belongs to user
+    email = request.headers.get("X-User-Email")
+    if not email:
+        raise HTTPException(status_code=401, detail="Missing user email header")
+    user = db.query(User).filter(User.email == email).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     interview = db.query(Interview).filter(
         Interview.id == interview_id,
-        Interview.user_id == current_user.id
+        Interview.user_id == user.id
     ).first()
     if not interview:
         raise HTTPException(status_code=404, detail="Interview not found")

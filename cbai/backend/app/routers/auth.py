@@ -37,7 +37,7 @@ def register(user: UserCreate, db: Session = Depends(get_db)):
     db.refresh(db_user)
     return db_user
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
     """Login user and return access token"""
     user = db.query(User).filter(User.email == user_credentials.email).first()
@@ -45,14 +45,8 @@ def login(user_credentials: UserLogin, db: Session = Depends(get_db)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect email or password",
-            headers={"WWW-Authenticate": "Bearer"},
         )
-    
-    access_token_expires = timedelta(minutes=settings.access_token_expire_minutes)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {"email": user.email, "username": user.username, "full_name": user.full_name}
 
 @router.post("/guest", response_model=Token)
 def create_guest_user(db: Session = Depends(get_db)):

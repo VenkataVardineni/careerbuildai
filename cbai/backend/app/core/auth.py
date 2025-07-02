@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.user import User
 from app.schemas.user import TokenData
 from app.core.config import settings
+import uuid
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -29,6 +30,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     else:
         expire = datetime.utcnow() + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode.update({"exp": expire})
+    to_encode.update({"jti": str(uuid.uuid4())})
     encoded_jwt = jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
     return encoded_jwt
 
