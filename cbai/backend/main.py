@@ -26,6 +26,8 @@ app.add_middleware(
         "http://localhost:3001",
         "http://localhost:3002",
         "https://careerbuildai-production.up.railway.app",
+        "https://www.careerbuildai.com",
+        "https://careerbuildai.com",
         # Add more origins as needed
     ],
     allow_credentials=True,
