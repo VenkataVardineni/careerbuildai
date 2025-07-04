@@ -14,7 +14,7 @@ class InterviewCreate(InterviewBase):
 class InterviewResponse(InterviewBase):
     id: int
     user_id: int
-    profile_id: int
+    profile_id: Optional[int] = None
     is_completed: bool
     started_at: datetime
     completed_at: Optional[datetime] = None
