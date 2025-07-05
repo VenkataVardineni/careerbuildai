@@ -25,6 +25,7 @@ app.add_middleware(
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:3002",
+        "https://careerbuildai-production-cb60.up.railway.app",
         "https://careerbuildai-production.up.railway.app",
         "https://www.careerbuildai.com",
         "https://careerbuildai.com",
